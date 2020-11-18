@@ -367,3 +367,357 @@ impl IntoFlattenRec for proc_macro2::token_stream::IntoIter {
         self.into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proc_macro2::{LineColumn, Literal, TokenStream};
+
+    macro_rules! assert_eq_token_span {
+        (
+            $token:expr,
+            ($start_line:expr, $start_col:expr)..($end_line:expr, $end_col:expr) $(,)?
+        ) => {
+            assert_eq!(
+                $token.span().start(),
+                LineColumn {
+                    line: $start_line,
+                    column: $start_col
+                }
+            );
+            assert_eq!(
+                $token.span().end(),
+                LineColumn {
+                    line: $end_line,
+                    column: $end_col
+                }
+            );
+        };
+    }
+
+    macro_rules! assert_eq_token {
+        (
+            $token:expr,
+            (
+                ($start_line:expr, $start_col:expr)..($end_line:expr, $end_col:expr),
+                Delimiter($kind:ident, $pos:ident) $(,)?
+            ) $(,)?
+        ) => {
+            assert_eq_token_span!($token, ($start_line, $start_col)..($end_line, $end_col));
+            match $token {
+                Token::Delimiter(delimiter) => {
+                    assert_eq!(delimiter.kind(), DelimiterKind::$kind);
+                    assert_eq!(delimiter.position(), DelimiterPosition::$pos);
+                }
+                _ => panic!("token is not Delimiter: {:?}", $token),
+            }
+        };
+        (
+            $token:expr,
+            (
+                ($start_line:expr, $start_col:expr)..($end_line:expr, $end_col:expr),
+                Ident($s:expr) $(,)?
+            ) $(,)?
+        ) => {
+            assert_eq_token_span!($token, ($start_line, $start_col)..($end_line, $end_col));
+            match $token {
+                Token::Ident(ident) => assert_eq!(ident.to_string(), $s),
+                _ => panic!("token is not Ident: {:?}", $token),
+            }
+        };
+        (
+            $token:expr,
+            (
+                ($start_line:expr, $start_col:expr)..($end_line:expr, $end_col:expr),
+                Literal::$lit_fn:ident($($lit_args:expr),*) $(,)?
+            ) $(,)?
+        ) => {
+            assert_eq_token_span!($token, ($start_line, $start_col)..($end_line, $end_col));
+            match $token {
+                Token::Literal(literal) => assert_eq!(literal.to_string(),
+                                                      Literal::$lit_fn($($lit_args),*).to_string()),
+                _ => panic!("token is not Literal: {:?}", $token),
+            }
+        };
+        (
+            $token:expr,
+            (
+                ($start_line:expr, $start_col:expr)..($end_line:expr, $end_col:expr),
+                Punct($c:expr) $(,)?
+            ) $(,)?
+        ) => {
+            assert_eq_token_span!($token, ($start_line, $start_col)..($end_line, $end_col));
+            match $token {
+                Token::Punct(punct) => assert_eq!(punct.as_char(), $c),
+                _ => panic!("token is not Punct: {:?}", $token),
+            }
+        };
+    }
+
+    macro_rules! assert_eq_tokens {
+        (
+            $tokens:expr,
+            $($expected:tt),* $(,)?
+        ) => {{
+            let mut tokens = $tokens.into_iter();
+            $({
+                let token = tokens.next().unwrap();
+                assert_eq_token!(token, $expected);
+            })*
+            assert!(tokens.next().is_none());
+        }}
+    }
+
+    #[test]
+    fn delimiters_nested() {
+        let stream = r#"
+{
+    {
+        true;
+        f()
+    }
+    a[0] = b[Self { (3 * i) + 1 }];
+}
+print(a[5])
+"#
+        .parse::<TokenStream>()
+        .unwrap();
+
+        assert_eq_tokens!(
+            stream.into_iter().flatten_rec(),
+            ((2, 0)..(2, 1), Delimiter(Brace, Open)),
+            ((3, 4)..(3, 5), Delimiter(Brace, Open)),
+            ((4, 8)..(4, 12), Ident("true")),
+            ((4, 12)..(4, 13), Punct(';')),
+            ((5, 8)..(5, 9), Ident("f")),
+            ((5, 9)..(5, 10), Delimiter(Parenthesis, Open)),
+            ((5, 10)..(5, 11), Delimiter(Parenthesis, Close)),
+            ((6, 4)..(6, 5), Delimiter(Brace, Close)),
+            ((7, 4)..(7, 5), Ident("a")),
+            ((7, 5)..(7, 6), Delimiter(Bracket, Open)),
+            ((7, 6)..(7, 7), Literal::usize_unsuffixed(0)),
+            ((7, 7)..(7, 8), Delimiter(Bracket, Close)),
+            ((7, 9)..(7, 10), Punct('=')),
+            ((7, 11)..(7, 12), Ident("b")),
+            ((7, 12)..(7, 13), Delimiter(Bracket, Open)),
+            ((7, 13)..(7, 17), Ident("Self")),
+            ((7, 18)..(7, 19), Delimiter(Brace, Open)),
+            ((7, 20)..(7, 21), Delimiter(Parenthesis, Open)),
+            ((7, 21)..(7, 22), Literal::usize_unsuffixed(3)),
+            ((7, 23)..(7, 24), Punct('*')),
+            ((7, 25)..(7, 26), Ident("i")),
+            ((7, 26)..(7, 27), Delimiter(Parenthesis, Close)),
+            ((7, 28)..(7, 29), Punct('+')),
+            ((7, 30)..(7, 31), Literal::usize_unsuffixed(1)),
+            ((7, 32)..(7, 33), Delimiter(Brace, Close)),
+            ((7, 33)..(7, 34), Delimiter(Bracket, Close)),
+            ((7, 34)..(7, 35), Punct(';')),
+            ((8, 0)..(8, 1), Delimiter(Brace, Close)),
+            ((9, 0)..(9, 5), Ident("print")),
+            ((9, 5)..(9, 6), Delimiter(Parenthesis, Open)),
+            ((9, 6)..(9, 7), Ident("a")),
+            ((9, 7)..(9, 8), Delimiter(Bracket, Open)),
+            ((9, 8)..(9, 9), Literal::usize_unsuffixed(5)),
+            ((9, 9)..(9, 10), Delimiter(Bracket, Close)),
+            ((9, 10)..(9, 11), Delimiter(Parenthesis, Close)),
+        );
+    }
+
+    #[test]
+    fn delimiter() {
+        let stream = r#"
+x[0] q(43) if d { St }
+"#
+        .parse::<TokenStream>()
+        .unwrap();
+
+        assert_eq_tokens!(
+            stream.into_iter().flatten_rec(),
+            ((2, 0)..(2, 1), Ident("x")),
+            ((2, 1)..(2, 2), Delimiter(Bracket, Open)),
+            ((2, 2)..(2, 3), Literal::i32_unsuffixed(0)),
+            ((2, 3)..(2, 4), Delimiter(Bracket, Close)),
+            ((2, 5)..(2, 6), Ident("q")),
+            ((2, 6)..(2, 7), Delimiter(Parenthesis, Open)),
+            ((2, 7)..(2, 9), Literal::i32_unsuffixed(43)),
+            ((2, 9)..(2, 10), Delimiter(Parenthesis, Close)),
+            ((2, 11)..(2, 13), Ident("if")),
+            ((2, 14)..(2, 15), Ident("d")),
+            ((2, 16)..(2, 17), Delimiter(Brace, Open)),
+            ((2, 18)..(2, 20), Ident("St")),
+            ((2, 21)..(2, 22), Delimiter(Brace, Close)),
+        );
+    }
+
+    #[test]
+    fn ident() {
+        let stream = r#"
+z foo_bar FooBar _ _out-inc18 υ 敗れる héllő_wørld_020 'static true
+"#
+        .parse::<TokenStream>()
+        .unwrap();
+
+        assert_eq_tokens!(
+            stream.into_iter().flatten_rec(),
+            ((2, 0)..(2, 1), Ident("z")),
+            ((2, 2)..(2, 9), Ident("foo_bar")),
+            ((2, 10)..(2, 16), Ident("FooBar")),
+            ((2, 17)..(2, 18), Ident("_")),
+            ((2, 19)..(2, 23), Ident("_out")),
+            ((2, 23)..(2, 24), Punct('-')),
+            ((2, 24)..(2, 29), Ident("inc18")),
+            ((2, 30)..(2, 31), Ident("υ")),
+            ((2, 32)..(2, 35), Ident("敗れる")),
+            ((2, 36)..(2, 51), Ident("héllő_wørld_020")),
+            ((2, 52)..(2, 53), Punct('\'')),
+            ((2, 53)..(2, 59), Ident("static")),
+            ((2, 60)..(2, 64), Ident("true")),
+        );
+    }
+
+    #[test]
+    fn literal() {
+        let stream = r#"
+33554432u32 33554432isize 33554432
+1.442695f32 1.442695f64 1.442695
+b"L4l" '\t' "блакить ┇ m³"
+"#
+        .parse::<TokenStream>()
+        .unwrap();
+
+        assert_eq_tokens!(
+            stream.into_iter().flatten_rec(),
+            ((2, 0)..(2, 11), Literal::u32_suffixed(33554432)),
+            ((2, 12)..(2, 25), Literal::isize_suffixed(33554432)),
+            ((2, 26)..(2, 34), Literal::i32_unsuffixed(33554432)),
+            ((3, 0)..(3, 11), Literal::f32_suffixed(1.442695)),
+            ((3, 12)..(3, 23), Literal::f64_suffixed(1.442695)),
+            ((3, 24)..(3, 32), Literal::f64_unsuffixed(1.442695)),
+            ((4, 0)..(4, 6), Literal::byte_string(b"L4l")),
+            ((4, 7)..(4, 11), Literal::character('\t')),
+            ((4, 12)..(4, 26), Literal::string("блакить ┇ m³")),
+        );
+    }
+
+    #[test]
+    fn punct() {
+        let stream = r#"
+j..=k; fun::<u64>() * &3
+"#
+        .parse::<TokenStream>()
+        .unwrap();
+
+        assert_eq_tokens!(
+            stream.into_iter().flatten_rec(),
+            ((2, 0)..(2, 1), Ident("j")),
+            ((2, 1)..(2, 2), Punct('.')),
+            ((2, 2)..(2, 3), Punct('.')),
+            ((2, 3)..(2, 4), Punct('=')),
+            ((2, 4)..(2, 5), Ident("k")),
+            ((2, 5)..(2, 6), Punct(';')),
+            ((2, 7)..(2, 10), Ident("fun")),
+            ((2, 10)..(2, 11), Punct(':')),
+            ((2, 11)..(2, 12), Punct(':')),
+            ((2, 12)..(2, 13), Punct('<')),
+            ((2, 13)..(2, 16), Ident("u64")),
+            ((2, 16)..(2, 17), Punct('>')),
+            ((2, 17)..(2, 18), Delimiter(Parenthesis, Open)),
+            ((2, 18)..(2, 19), Delimiter(Parenthesis, Close)),
+            ((2, 20)..(2, 21), Punct('*')),
+            ((2, 22)..(2, 23), Punct('&')),
+            ((2, 23)..(2, 24), Literal::i32_unsuffixed(3)),
+        );
+    }
+
+    #[test]
+    fn comment_line() {
+        let stream = r#"
+a = 5;
+// Alpha, beta, gamma; delta...
+b != 'x'
+"#
+        .parse::<TokenStream>()
+        .unwrap();
+
+        assert_eq_tokens!(
+            stream.into_iter().flatten_rec(),
+            ((2, 0)..(2, 1), Ident("a")),
+            ((2, 2)..(2, 3), Punct('=')),
+            ((2, 4)..(2, 5), Literal::i32_unsuffixed(5)),
+            ((2, 5)..(2, 6), Punct(';')),
+            ((4, 0)..(4, 1), Ident("b")),
+            ((4, 2)..(4, 3), Punct('!')),
+            ((4, 3)..(4, 4), Punct('=')),
+            ((4, 5)..(4, 8), Literal::character('x')),
+        );
+    }
+
+    #[test]
+    fn doc_line_inner() {
+        let stream = r#"
+mod m {
+    //! a
+    //! bc
+    struct S;
+}
+"#
+        .parse::<TokenStream>()
+        .unwrap();
+
+        assert_eq_tokens!(
+            stream.into_iter().flatten_rec(),
+            ((2, 0)..(2, 3), Ident("mod")),
+            ((2, 4)..(2, 5), Ident("m")),
+            ((2, 6)..(2, 7), Delimiter(Brace, Open)),
+            ((3, 4)..(3, 9), Punct('#')),
+            ((3, 4)..(3, 9), Punct('!')),
+            ((3, 4)..(3, 5), Delimiter(Bracket, Open)),
+            ((3, 4)..(3, 9), Ident("doc")),
+            ((3, 4)..(3, 9), Punct('=')),
+            ((3, 4)..(3, 9), Literal::string(" a")),
+            ((3, 8)..(3, 9), Delimiter(Bracket, Close)),
+            ((4, 4)..(4, 10), Punct('#')),
+            ((4, 4)..(4, 10), Punct('!')),
+            ((4, 4)..(4, 5), Delimiter(Bracket, Open)),
+            ((4, 4)..(4, 10), Ident("doc")),
+            ((4, 4)..(4, 10), Punct('=')),
+            ((4, 4)..(4, 10), Literal::string(" bc")),
+            ((4, 9)..(4, 10), Delimiter(Bracket, Close)),
+            ((5, 4)..(5, 10), Ident("struct")),
+            ((5, 11)..(5, 12), Ident("S")),
+            ((5, 12)..(5, 13), Punct(';')),
+            ((6, 0)..(6, 1), Delimiter(Brace, Close)),
+        );
+    }
+    #[test]
+
+    fn doc_line_outer() {
+        let stream = r#"
+/// Foo bar
+/// baz.
+enum X {}
+"#
+        .parse::<TokenStream>()
+        .unwrap();
+
+        assert_eq_tokens!(
+            stream.into_iter().flatten_rec(),
+            ((2, 0)..(2, 11), Punct('#')),
+            ((2, 0)..(2, 1), Delimiter(Bracket, Open)),
+            ((2, 0)..(2, 11), Ident("doc")),
+            ((2, 0)..(2, 11), Punct('=')),
+            ((2, 0)..(2, 11), Literal::string(" Foo bar")),
+            ((2, 10)..(2, 11), Delimiter(Bracket, Close)),
+            ((3, 0)..(3, 8), Punct('#')),
+            ((3, 0)..(3, 1), Delimiter(Bracket, Open)),
+            ((3, 0)..(3, 8), Ident("doc")),
+            ((3, 0)..(3, 8), Punct('=')),
+            ((3, 0)..(3, 8), Literal::string(" baz.")),
+            ((3, 7)..(3, 8), Delimiter(Bracket, Close)),
+            ((4, 0)..(4, 4), Ident("enum")),
+            ((4, 5)..(4, 6), Ident("X")),
+            ((4, 7)..(4, 8), Delimiter(Brace, Open)),
+            ((4, 8)..(4, 9), Delimiter(Brace, Close)),
+        );
+    }
+}
