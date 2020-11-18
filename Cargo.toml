@@ -5,3 +5,10 @@ name = "token_stream_flatten"
 version = "0.1.0"
 
 [dependencies]
+proc-macro2 = "1.0"
+
+[features]
+default = ["proc-macro", "span-locations"]
+
+proc-macro = ["proc-macro2/proc-macro"]
+span-locations = ["proc-macro2/span-locations"]
