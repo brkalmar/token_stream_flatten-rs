@@ -1,5 +1,7 @@
 //! Flattening iterator adaptor for token streams.
 //!
+//! Allows processing rust source as a sequence of primitve tokens.
+//!
 //! # Usage
 //!
 //! The adaptor [`FlattenRec`] can be obtained by the [`flatten_rec`] method, provided by the trait
