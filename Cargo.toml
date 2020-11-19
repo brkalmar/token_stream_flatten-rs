@@ -1,7 +1,12 @@
 [package]
 authors = ["Bence Kalmar <bkalmar1996@gmail.com>"]
+categories = ["development-tools::procedural-macro-helpers"]
+description = "Flattening iterator adaptor for token streams"
 edition = "2018"
+keywords = ["flatten", "macros", "token"]
+license = "MIT"
 name = "token_stream_flatten"
+repository = "https://github.com/brkalmar/token_stream_flatten-rs"
 version = "0.1.0"
 
 [dependencies]
