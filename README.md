@@ -1,4 +1,4 @@
-# `token_stream_flatten-rs`
+# token\_stream\_flatten-rs
 
 Flattening iterator adaptor for token streams in rust.
 Allows processing rust source as a sequence of primitve tokens.
